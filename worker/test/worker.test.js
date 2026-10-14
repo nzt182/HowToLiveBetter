@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Script } from 'node:vm';
-import worker, { deleteExpiredVisits } from '../src/index.js';
+import worker, { beijingTime, deleteExpiredVisits } from '../src/index.js';
 
 const ORIGIN = 'https://nzt182.github.io';
 const BASE_ENV = {
@@ -55,6 +55,7 @@ test('记录边缘 IP 和服务端时间，去掉 query；不回显私人字段'
   assert.equal(statement.values[2], '/HowToLiveBetter/#e-1-1');
   assert.ok(Date.parse(statement.values[1]) >= before);
   assert.ok(Date.parse(statement.values[1]) <= Date.now());
+  assert.match(statement.values[1], /\.\d{3}\+08:00$/);
 });
 
 test('没有边缘 IP 时拒绝，不用 body.ip 或 X-Forwarded-For 代替', async () => {
@@ -141,9 +142,12 @@ test('查询参数绑定、最近 100 条和下一页游标', async () => {
   assert.equal(data.visits.length, 100);
   assert.equal(data.next_before_id, 102);
   assert.equal(data.retention_days, 30);
+  assert.ok(data.visits.every((row) => row.visited_at.endsWith('+08:00')));
   const statement = DB.statements[0];
-  assert.ok(statement.sql.includes('WHERE visited_at >= ? AND id < ? AND visited_at >= ? AND visited_at <= ? AND ip = ? AND page = ?'));
-  assert.deepEqual(statement.values.slice(1), [202, '2026-10-01T00:00:00.000Z', '2026-10-20T23:59:59.999Z', '203.0.113.21', '/HowToLiveBetter/', 101]);
+  assert.ok(statement.sql.includes('AND id < ?'));
+  assert.ok(statement.sql.includes("substr(visited_at, -6) = '+08:00'"));
+  assert.ok(statement.sql.includes("substr(visited_at, -1) = 'Z'"));
+  assert.deepEqual(statement.values.slice(2), [202, '2026-10-01T08:00:00.000+08:00', '2026-10-01T00:00:00.000Z', '2026-10-21T07:59:59.999+08:00', '2026-10-20T23:59:59.999Z', '203.0.113.21', '/HowToLiveBetter/', 101]);
   assert.ok(!statement.sql.includes('203.0.113.21'));
 });
 
@@ -163,9 +167,8 @@ test('每日留存任务只删除 30 天前，截止时间通过参数绑定', a
   const DB = database();
   const now = Date.parse('2026-10-14T19:00:00Z');
   await deleteExpiredVisits({ ...BASE_ENV, DB }, now);
-  assert.deepEqual(DB.statements[0], {
-    sql: 'DELETE FROM visits WHERE visited_at < ?', values: ['2026-09-14T19:00:00.000Z'],
-  });
+  assert.ok(DB.statements[0].sql.startsWith('DELETE FROM visits WHERE ((visited_at < ?'));
+  assert.deepEqual(DB.statements[0].values, ['2026-09-15T03:00:00.000+08:00', '2026-09-14T19:00:00.000Z']);
   const pending = [];
   await worker.scheduled({ scheduledTime: now }, { ...BASE_ENV, DB }, { waitUntil(task) { pending.push(task); } });
   await Promise.all(pending);
@@ -183,4 +186,15 @@ test('管理页无私人数据和密钥，生成的内联脚本有效且有 CSP'
   assert.ok(html.includes('cell.textContent = value'));
   const script = /<script[^>]*>([\s\S]*?)<\/script>/.exec(html)[1];
   assert.doesNotThrow(() => new Script(script));
+});
+
+test('北京时间表示保留真实时刻、毫秒并跨 UTC 日期，不重复加 8 小时', () => {
+  for (const [input, expected] of [
+    ['2026-10-14T16:00:00.123Z', '2026-10-15T00:00:00.123+08:00'],
+    ['2026-12-31T16:00:00.999Z', '2027-01-01T00:00:00.999+08:00'],
+    ['2026-10-15T00:00:00.123+08:00', '2026-10-15T00:00:00.123+08:00'],
+  ]) {
+    assert.equal(beijingTime(input), expected);
+    assert.equal(Date.parse(expected), Date.parse(input));
+  }
 });

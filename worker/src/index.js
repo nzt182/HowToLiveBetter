@@ -52,7 +52,18 @@ function retentionDays(env) {
 }
 
 function cutoffDate(env, now = Date.now()) {
-  return new Date(now - retentionDays(env) * 86400000).toISOString();
+  return beijingTime(now - retentionDays(env) * 86400000);
+}
+
+// 先解析真实时刻，再只调整表示时区；已有 +08:00 字符串不会被重复加 8 小时。
+export function beijingTime(value = Date.now()) {
+  return new Date(new Date(value).getTime() + 8 * 3600000).toISOString().replace('Z', '+08:00');
+}
+
+// 升级期间兼容旧 Z 数据；保留原 visited_at 索引及直接列范围比较。
+function addTimeCondition(conditions, values, operator, time) {
+  conditions.push('((visited_at ' + operator + " ? AND substr(visited_at, -6) = '+08:00') OR (visited_at " + operator + " ? AND substr(visited_at, -1) = 'Z'))");
+  values.push(time, new Date(time).toISOString());
 }
 
 // 仅接受本站真实页面及受控的虚拟页；查询参数从不入库。
@@ -173,20 +184,23 @@ function positiveInteger(params, key, fallback, max = Number.MAX_SAFE_INTEGER) {
 }
 
 function isoDate(raw, name) {
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(raw)) throw new HttpError(400, name + ' 必须为 UTC ISO 时间');
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?(Z|\+08:00)$/.test(raw)) throw new HttpError(400, name + ' 必须为带 Z 或 +08:00 的 ISO 时间');
   const value = new Date(raw);
-  if (!Number.isFinite(value.getTime()) || value.toISOString().replace('.000Z', 'Z') !== raw.replace('.000Z', 'Z')) {
+  if (!Number.isFinite(value.getTime())) throw new HttpError(400, name + ' 时间无效');
+  const canonical = raw.endsWith('Z') ? value.toISOString() : beijingTime(value);
+  if (canonical.replace('.000', '') !== raw.replace('.000', '')) {
     throw new HttpError(400, name + ' 时间无效');
   }
-  return value.toISOString();
+  return beijingTime(value);
 }
 
 async function listVisits(request, env) {
   const params = new URL(request.url).searchParams;
   const limit = positiveInteger(params, 'limit', 100, 500);
   const beforeId = positiveInteger(params, 'before_id', undefined);
-  const conditions = ['visited_at >= ?'];
-  const values = [cutoffDate(env)];
+  const conditions = [];
+  const values = [];
+  addTimeCondition(conditions, values, '>=', cutoffDate(env));
   if (beforeId !== undefined) {
     conditions.push('id < ?');
     values.push(beforeId);
@@ -194,8 +208,8 @@ async function listVisits(request, env) {
   const since = params.has('since') ? isoDate(params.get('since'), 'since') : undefined;
   const until = params.has('until') ? isoDate(params.get('until'), 'until') : undefined;
   if (since && until && since > until) throw new HttpError(400, '开始时间不能晚于结束时间');
-  if (since) { conditions.push('visited_at >= ?'); values.push(since); }
-  if (until) { conditions.push('visited_at <= ?'); values.push(until); }
+  if (since) addTimeCondition(conditions, values, '>=', since);
+  if (until) addTimeCondition(conditions, values, '<=', until);
   if (params.has('ip')) {
     const ip = params.get('ip');
     visitorIp(new Request(request.url, { headers: { 'CF-Connecting-IP': ip } }));
@@ -209,13 +223,16 @@ async function listVisits(request, env) {
   const result = await env.DB.prepare(
     'SELECT id, ip, visited_at, page FROM visits WHERE ' + conditions.join(' AND ') + ' ORDER BY id DESC LIMIT ?',
   ).bind(...values, limit + 1).all();
-  const visits = result.results.slice(0, limit);
+  const visits = result.results.slice(0, limit).map((row) => ({ ...row, visited_at: beijingTime(row.visited_at) }));
   const nextBeforeId = result.results.length > limit ? visits.at(-1).id : null;
   return { visits, next_before_id: nextBeforeId, retention_days: retentionDays(env) };
 }
 
 export async function deleteExpiredVisits(env, now = Date.now()) {
-  return env.DB.prepare('DELETE FROM visits WHERE visited_at < ?').bind(cutoffDate(env, now)).run();
+  const conditions = [];
+  const values = [];
+  addTimeCondition(conditions, values, '<', cutoffDate(env, now));
+  return env.DB.prepare('DELETE FROM visits WHERE ' + conditions[0]).bind(...values).run();
 }
 
 export default {
@@ -242,7 +259,7 @@ export default {
         const page = normalizePage(body.page, env);
         const ip = visitorIp(request);
         await env.DB.prepare('INSERT INTO visits (ip, visited_at, page) VALUES (?, ?, ?)')
-          .bind(ip, new Date().toISOString(), page).run();
+          .bind(ip, beijingTime(), page).run();
         return new Response(null, { status: 204, headers: { ...headers, 'Cache-Control': 'no-store' } });
       }
       if (path === '/api/visits') {

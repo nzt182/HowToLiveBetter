@@ -102,8 +102,8 @@ export function adminPage(nonce) {
       const value = byId(name).value.trim();
       if (value) params.set(name, value);
     }
-    if (byId('since').value) params.set('since', new Date(byId('since').value + 'T00:00:00+08:00').toISOString());
-    if (byId('until').value) params.set('until', new Date(byId('until').value + 'T23:59:59.999+08:00').toISOString());
+    if (byId('since').value) params.set('since', byId('since').value + 'T00:00:00.000+08:00');
+    if (byId('until').value) params.set('until', byId('until').value + 'T23:59:59.999+08:00');
     return params;
   }
 
@@ -164,7 +164,8 @@ export function adminPage(nonce) {
     const href = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = href;
-    link.download = '访问记录-' + new Date().toISOString().slice(0, 10) + '.csv';
+    const exportDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
+    link.download = '访问记录-' + exportDate + '.csv';
     link.click();
     setTimeout(() => URL.revokeObjectURL(href), 1000);
   });

@@ -26,11 +26,11 @@ python3 -m http.server 8766 --bind 127.0.0.1 --directory dist
 
 ## 访问记录
 
-新增的 `worker/` 使用 Cloudflare Worker 接收访问记录，D1 保存访客 IP、服务器 UTC 时间和访问页面；管理页按北京时间显示，可筛选和导出记录。网站继续使用原来的 GitHub Pages 网址，无需改域名。
+`collector-pages/` 使用 Cloudflare Pages 接收访问记录，D1 保存访客 IP、服务器北京时间和访问页面；数据库时间统一带 `+08:00`，管理页可筛选和导出记录。网站继续使用原来的 GitHub Pages 网址，无需改域名。
 
-先按 [后端部署说明](worker/README.md) 创建 D1、设置管理员密钥并部署 Worker，然后把真实的 `https://<worker>.<账户>.workers.dev/collect` 写入 `dist/assets/visitor-log-config.js` 的 `endpoint`，最后发布静态网站。配置为空时不发送记录，也不显示访问记录说明。管理员密钥只配置在 Worker secret 中，不写入前端或仓库。
+本站采用稳定的 `https://how-to-live-better-visitor-log.pages.dev/collect`，接入方式见 [采集入口说明](collector-pages/README.md)。`dist/assets/visitor-log-config.js` 的 `endpoint` 保存这个公开地址。配置为空时不发送记录，也不显示访问记录说明。管理员密钥只配置在 Cloudflare secret 中，不写入前端或仓库。
 
-管理员入口为该 Worker 的 `/admin`，输入管理员密钥后才能查看记录。默认保存最近 30 天，每天北京时间 03:00 清理过期数据。只能记录启用之后的访问，无法补回历史访问。
+管理员入口为 [访问记录管理页](https://how-to-live-better-visitor-log.pages.dev/admin)，输入管理员密钥后才能查看记录。默认保存最近 30 天，原 `worker/` 对同一数据库在每天北京时间 03:00 清理过期数据；Pages 入口直接接收访客请求，无需经过旧域名。只能记录启用之后的访问，无法补回历史访问。
 
 页面进入、明确条目导航、长文打开与关闭、浏览器前进/后退会记录；普通滚动、搜索和筛选操作不会额外记录，查询字符串也不会保存。长文以 `#docs/<文件名.md>` 标识。这是浏览器上报：禁用 JavaScript 或拦截上报的访问可能漏记，IP 可能是共享网络或 VPN 的出口地址。
 

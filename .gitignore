@@ -8,3 +8,11 @@ worker/.dev.vars.*
 !worker/.dev.vars.example
 worker/.env
 worker/.env.*
+
+# Pages 采集入口的本地状态、构建产物与密钥。
+collector-pages/.wrangler/
+collector-pages/.dev.vars
+collector-pages/.dev.vars.*
+collector-pages/.env
+collector-pages/.env.*
+collector-pages/.build/
