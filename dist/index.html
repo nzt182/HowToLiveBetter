@@ -469,7 +469,7 @@ abbr.term:hover{border-bottom-color:var(--brand-1);color:var(--brand-1)}
         <div><button id="reset2">清空筛选</button></div>
       </div>
     </div>
-    <div class="foot">离线副本，生成于 2026-10-05 17:34（北京时间），正文提交 fa92004；正文会继续更新，以 <a href="https://eternity4719.github.io/HowToLiveBetter/">在线版</a> 为准。<br>数字口径以条目内标注为准：第 1、2 节是 ACM 或特定死因，第 3、4 节是精力/时间，第 5 节是金钱，第 7 节是金钱与保障，第 8、9 节是金钱与人身自由，互不换算。来源核实过程见 <a href="https://github.com/eternity4719/HowToLiveBetter/tree/main/docs/%E6%A0%B8%E5%AE%9E%E8%AE%B0%E5%BD%95">docs/核实记录</a>。正文按 <a href="https://creativecommons.org/licenses/by/4.0/deed.zh-hans">CC BY 4.0</a> 发布，转载改编请署名并附原文链接。</div>
+    <div class="foot">离线副本，生成于 2026-10-05 17:34（北京时间），正文提交 fa92004；正文会继续更新，以 <a href="https://eternity4719.github.io/HowToLiveBetter/">在线版</a> 为准。<br>数字口径以条目内标注为准：第 1、2 节是 ACM 或特定死因，第 3、4 节是精力/时间，第 5 节是金钱，第 7 节是金钱与保障，第 8、9 节是金钱与人身自由，互不换算。来源核实过程见 <a href="https://github.com/eternity4719/HowToLiveBetter/tree/main/docs/%E6%A0%B8%E5%AE%9E%E8%AE%B0%E5%BD%95">docs/核实记录</a>。正文按 <a href="https://creativecommons.org/licenses/by/4.0/deed.zh-hans">CC BY 4.0</a> 发布，转载改编请署名并附原文链接。<p id="visitor-log-notice" hidden>本网站记录访客 IP、访问时间和访问页面，保留 30 天，仅供站长查询。</p></div>
   </div>
 </main>
 
@@ -895,6 +895,7 @@ function gotoItem(key, fromId){
   // 形状——分享出去的链接也就和页面自己产生的链接对得上了。
   const first = sec ? document.getElementById(`e-${sec}-1`) : null;
   history.pushState(null, '', '#' + (first?.id || id));
+  document.dispatchEvent(new CustomEvent('visitor-log:navigate', { detail: { page: location.pathname + location.hash } }));
   if (sec){
     scrollToEl(el, { align: 'start', flashEl: el.querySelector('.sec-h') || el, spyId: first?.id || id, renderEl: first || el });
     return;
@@ -1350,6 +1351,7 @@ function dmClose(){
   document.body.style.overflow = '';
   DM.lastFocus?.focus?.({ preventScroll: true });   // 不然「跳过去」刚滚到目标，又被拽回原来那个链接
   DM.lastFocus = null;
+  document.dispatchEvent(new CustomEvent('visitor-log:navigate', { detail: { page: location.pathname + location.hash } }));
 }
 async function dmOpen(path, from){
   DM.lastFocus = from || null;
@@ -1388,6 +1390,7 @@ async function dmOpen(path, from){
     DM.toc.appendChild(a);
   }
   dmSpy();
+  document.dispatchEvent(new CustomEvent('visitor-log:navigate', { detail: { page: location.pathname + '#docs/' + encodeURIComponent(path.replace(/^docs\//, '')) } }));
   if (window.gtag) gtag('event', 'doc_open', { doc: path });
 }
 document.addEventListener('click', ev => {
@@ -1496,5 +1499,7 @@ document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !TIP.hid
   }
 })();
 </script>
+<script src="assets/visitor-log-config.js"></script>
+<script src="assets/visitor-log.js"></script>
 </body>
 </html>

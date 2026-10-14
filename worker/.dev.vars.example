@@ -1,0 +1,2 @@
+# 复制为 .dev.vars，仅用于本地；生产使用 wrangler secret put ADMIN_TOKEN。
+ADMIN_TOKEN="replace-with-a-long-random-local-token"
