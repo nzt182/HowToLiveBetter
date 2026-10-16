@@ -147,6 +147,19 @@ function visitorIp(request) {
   return ip;
 }
 
+function deviceId(value, required = false) {
+  if (value === undefined || value === null || (typeof value === 'string' && !value.trim())) {
+    if (required) throw new HttpError(400, '设备 ID 不能为空');
+    return null;
+  }
+  if (typeof value !== 'string') throw new HttpError(400, '设备 ID 必须为 UUID v4');
+  const normalized = value.trim().toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(normalized)) {
+    throw new HttpError(400, '设备 ID 必须为 UUID v4');
+  }
+  return normalized;
+}
+
 function collectHeaders(request, env) {
   const origin = request.headers.get('Origin');
   if (!origin || !allowedOrigins(env).includes(origin)) throw new HttpError(403, '不允许此来源');
@@ -220,12 +233,38 @@ async function listVisits(request, env) {
     conditions.push('page = ?');
     values.push(normalizePage(params.get('page'), env));
   }
+  const visitorType = params.get('visitor_type') ?? 'all';
+  if (!['all', 'self', 'other', 'unknown'].includes(visitorType)) throw new HttpError(400, '访客类型无效');
+  if (visitorType === 'self') conditions.push('owner_devices.device_id IS NOT NULL');
+  if (visitorType === 'other') conditions.push('(visits.device_id IS NOT NULL AND owner_devices.device_id IS NULL)');
+  if (visitorType === 'unknown') conditions.push('visits.device_id IS NULL');
   const result = await env.DB.prepare(
-    'SELECT id, ip, visited_at, page FROM visits WHERE ' + conditions.join(' AND ') + ' ORDER BY id DESC LIMIT ?',
+    "SELECT visits.id, visits.ip, visits.visited_at, visits.page, visits.device_id, CASE WHEN visits.device_id IS NULL THEN 'unknown' WHEN owner_devices.device_id IS NOT NULL THEN 'self' ELSE 'other' END AS visitor_type, owner_devices.label AS device_label FROM visits LEFT JOIN owner_devices ON visits.device_id = owner_devices.device_id WHERE " + conditions.join(' AND ') + ' ORDER BY visits.id DESC LIMIT ?',
   ).bind(...values, limit + 1).all();
   const visits = result.results.slice(0, limit).map((row) => ({ ...row, visited_at: beijingTime(row.visited_at) }));
   const nextBeforeId = result.results.length > limit ? visits.at(-1).id : null;
   return { visits, next_before_id: nextBeforeId, retention_days: retentionDays(env) };
+}
+
+async function manageDevices(request, env) {
+  if (request.method === 'GET') {
+    const result = await env.DB.prepare('SELECT device_id, label, created_at FROM owner_devices ORDER BY created_at DESC, device_id').all();
+    return {
+      devices: result.results.map((device) => ({ ...device, created_at: beijingTime(device.created_at) })),
+      setup_url: new URL('visitor-device.html', siteUrl(env)).href,
+    };
+  }
+  const body = await readBody(request);
+  const id = deviceId(body.device_id, true);
+  if (request.method === 'POST') {
+    const label = typeof body.label === 'string' ? body.label.trim() : '';
+    if (!label || label.length > 60) throw new HttpError(400, '设备名称不能为空且不能超过 60 个字符');
+    await env.DB.prepare('INSERT INTO owner_devices (device_id, label, created_at) VALUES (?, ?, ?) ON CONFLICT(device_id) DO UPDATE SET label = excluded.label')
+      .bind(id, label, beijingTime()).run();
+  } else {
+    await env.DB.prepare('DELETE FROM owner_devices WHERE device_id = ?').bind(id).run();
+  }
+  return { ok: true };
 }
 
 export async function deleteExpiredVisits(env, now = Date.now()) {
@@ -258,15 +297,24 @@ export default {
         const body = await readBody(request);
         const page = normalizePage(body.page, env);
         const ip = visitorIp(request);
-        await env.DB.prepare('INSERT INTO visits (ip, visited_at, page) VALUES (?, ?, ?)')
-          .bind(ip, beijingTime(), page).run();
+        const id = deviceId(body.device_id);
+        await env.DB.prepare('INSERT INTO visits (ip, visited_at, page, device_id) VALUES (?, ?, ?, ?)')
+          .bind(ip, beijingTime(), page, id).run();
         return new Response(null, { status: 204, headers: { ...headers, 'Cache-Control': 'no-store' } });
       }
       if (path === '/api/visits') {
         headers = apiHeaders(request);
-        if (request.method !== 'GET') return json({ error: '此接口只支持 GET' }, 405, { ...headers, Allow: 'GET' });
         await authenticate(request, env);
+        if (request.method !== 'GET') return json({ error: '此接口只支持 GET' }, 405, { ...headers, Allow: 'GET' });
         return json(await listVisits(request, env), 200, headers);
+      }
+      if (path === '/api/devices') {
+        headers = apiHeaders(request);
+        await authenticate(request, env);
+        if (!['GET', 'POST', 'DELETE'].includes(request.method)) {
+          return json({ error: '此接口只支持 GET、POST 或 DELETE' }, 405, { ...headers, Allow: 'GET, POST, DELETE' });
+        }
+        return json(await manageDevices(request, env), 200, headers);
       }
       if (path === '/admin' || path === '/admin/') {
         if (request.method !== 'GET') return json({ error: '此页面只支持 GET' }, 405, { Allow: 'GET' });

@@ -16,6 +16,7 @@ const ENV = {
 function sqlite() {
   const connection = new DatabaseSync(':memory:');
   connection.exec(readFileSync(new URL('../migrations/0001_visits.sql', import.meta.url), 'utf8'));
+  connection.exec(readFileSync(new URL('../migrations/0003_device_identity.sql', import.meta.url), 'utf8'));
   return {
     connection,
     prepare(sql) {
@@ -134,6 +135,7 @@ test('管理日期参数显式 +08:00，显示与实际 CSV 导出保持北京�
     constructor(...values) { super(...(values.length ? values : ['2026-10-14T16:01:00.000Z'])); }
   }
   const context = createContext({
+    window: { addEventListener() {} },
     document: { getElementById: byId, createElement() { exportedLink = { click() {} }; return exportedLink; } },
     URLSearchParams, Intl, Date: AdminDate, Blob,
     URL: { createObjectURL(blob) { exportedBlob = blob; return 'blob:test'; }, revokeObjectURL() {} },

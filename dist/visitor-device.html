@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>标记本人浏览器 · 高性价比人生指南</title>
+  <style>
+    :root{color-scheme:light dark;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    body{max-width:560px;margin:12vh auto;padding:24px;line-height:1.8}
+    h1{font-size:24px;line-height:1.4}
+    #device-setup-status{padding:16px;border:1px solid #8886;border-radius:8px}
+    #device-setup-status[data-state="success"]{border-color:#24843c}
+    #device-setup-status[data-state="error"]{border-color:#b74632}
+    button{padding:8px 16px;margin:8px 8px 0 0;font:inherit;cursor:pointer}
+    .note{font-size:14px;opacity:.8}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>标记本人浏览器</h1>
+    <p>此操作将当前浏览器的随机标识交回你打开的访问记录管理页，用于标记本人设备。</p>
+    <p class="note">只标记当前浏览器；换浏览器或清除网站存储后需要重新标记。不使用设备指纹。</p>
+    <p id="device-setup-status" role="status" aria-live="polite">正在检查配对信息……</p>
+    <button id="device-setup-retry" type="button" hidden>重新发送</button>
+    <button id="device-setup-close" type="button">关闭此页</button>
+    <p id="device-setup-close-hint" class="note" hidden>如果此页没有自动关闭，请手动关闭当前标签页。</p>
+    <noscript><p>请启用 JavaScript 后，从访问记录管理页重新打开“标记本人浏览器”。</p></noscript>
+  </main>
+  <script src="assets/visitor-log-config.js"></script>
+  <script src="assets/visitor-device.js"></script>
+  <script src="assets/visitor-device-setup.js"></script>
+</body>
+</html>

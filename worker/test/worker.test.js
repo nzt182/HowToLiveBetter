@@ -50,9 +50,10 @@ test('记录边缘 IP 和服务端时间，去掉 query；不回显私人字段'
   assert.equal(await response.text(), '');
   assert.equal(response.headers.get('Access-Control-Allow-Origin'), ORIGIN);
   const statement = DB.statements[0];
-  assert.equal(statement.sql, 'INSERT INTO visits (ip, visited_at, page) VALUES (?, ?, ?)');
+  assert.equal(statement.sql, 'INSERT INTO visits (ip, visited_at, page, device_id) VALUES (?, ?, ?, ?)');
   assert.equal(statement.values[0], '203.0.113.21');
   assert.equal(statement.values[2], '/HowToLiveBetter/#e-1-1');
+  assert.equal(statement.values[3], null);
   assert.ok(Date.parse(statement.values[1]) >= before);
   assert.ok(Date.parse(statement.values[1]) <= Date.now());
   assert.match(statement.values[1], /\.\d{3}\+08:00$/);

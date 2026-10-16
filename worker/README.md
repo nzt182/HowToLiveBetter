@@ -6,12 +6,17 @@ GitHub Pages 继续提供网站；这个独立 Cloudflare Worker 接收浏览器
 
 ## 接口与记录口径
 
-- `POST /collect`：接收 `text/plain` 或 `application/json` 的 `{"page":"/HowToLiveBetter/#e-1-1"}`，成功返回空的 `204`。仅接受配置中的网站 Origin；不会返回访客 IP。
+- `POST /collect`：接收 `text/plain` 或 `application/json` 的 `{"page":"/HowToLiveBetter/#e-1-1"}`，可附带 `device_id`（UUID v4，统一小写）；缺失或空值保存为 `null`，非法格式返回 `400`。成功返回空的 `204`。仅接受配置中的网站 Origin；不会返回访客 IP，也不采信客户端的本人标记。
 - 页面只接受 `/HowToLiveBetter/`（含不带末尾斜线及 `index.html` 的等价入口）、`#e-N-N`、`#sec-N`、`#docs/<URL 编码文件名.md>`。服务端移除查询字符串，限制请求为 4 KiB、页面为 1024 字符，不存储搜索词或查询参数。
 - IP 只取 Cloudflare 边缘设置的 `CF-Connecting-IP`；不采信请求体的 IP、`X-Forwarded-For` 或客户端时间。没有此头就拒绝记录。生产必须通过 Cloudflare Worker 入口接收请求。
-- `GET /admin`：中文管理页。在页面输入管理员密钥后查看记录、按 IP / 页面 / 北京时间日期筛选、翻页和导出已加载记录的 CSV。密钥只保存在当前页面内存中，刷新需重新输入。
-- `GET /api/visits`：需要 `Authorization: Bearer <ADMIN_TOKEN>`。默认最近 100 条，`limit` 上限 500。分页参数 `before_id`，可选筛选 `ip`、`page`、`since`、`until`，时间参数接受 `Z` 或 `+08:00` 的 ISO 格式，服务端统一按同一真实时刻归一到北京时间比较。返回 `visits`、`next_before_id`、`retention_days`，每条 `visited_at` 都带 `+08:00`。只允许 Worker 同源浏览器查询；CLI 不带 Origin 也必须认证。查询响应禁止缓存。
-- 默认保存 30 天。每天北京时间 03:00 执行删除；查询同时排除超过期限的记录。表只有 `id`、`ip`、`visited_at`、`page`，并有时间索引。
+- `GET /admin`：中文管理页。在页面输入管理员密钥后查看记录、按访客类型 / IP / 页面 / 北京时间日期筛选、翻页和导出已加载记录的 CSV。CSV 包含访客类型、设备名称和完整设备 UUID。密钥只保存在当前页面内存中，刷新需重新输入。
+- `GET /api/visits`：需要 `Authorization: Bearer <ADMIN_TOKEN>`。默认最近 100 条，`limit` 上限 500。分页参数 `before_id`，可选筛选 `ip`、`page`、`since`、`until`、`visitor_type`（`all` / `self` / `other` / `unknown`，默认 `all`），时间参数接受 `Z` 或 `+08:00` 的 ISO 格式，服务端统一按同一真实时刻归一到北京时间比较。返回 `visits`、`next_before_id`、`retention_days`，每条包含 `device_id`、`visitor_type`、`device_label`，且 `visited_at` 都带 `+08:00`。只允许 Worker 同源浏览器查询；CLI 不带 Origin 也必须认证。查询响应禁止缓存。
+- `/api/devices`：同样要求管理员认证、同源访问并禁止缓存。`GET` 返回设备列表和标记页地址；`POST` 接收 `device_id`、`label` 登记或改名，设备名称去除首尾空白后为 1–60 字符，改名保留原创建时间；`DELETE` 接收 `device_id` 取消登记，不删除访问明细，之后仍可重新登记。
+- 访问明细默认保存 30 天。每天北京时间 03:00 执行删除；查询同时排除超过期限的记录。`visits` 包含 `id`、`ip`、`visited_at`、`page`、可空的 `device_id`，并有时间和设备索引。`owner_devices` 中的设备名称与登记保留至手动取消，不受 30 天清理影响。
+
+浏览器 UUID 随机生成并保存在本站 `localStorage` 中，不使用设备指纹，也不作为身份认证。在管理页填写设备名称，点击「将本浏览器标记为本人设备」后完成本站浏览器登记；自己的其他浏览器需逐个标记，清除本站存储或使用无痕模式后需重新标记。设备列表中的「取消本人标记」只撤销登记。
+
+分类按当前登记表计算：`self` 为已登记设备，`other` 只包含有 UUID 但尚未登记的浏览器，可能包含自己的其他浏览器；`unknown` 为没有设备 ID 的历史或存储不可用访问，可独立筛选。旧记录保留 `null`，不会按 IP 回填设备或本人身份。
 
 这是浏览器访问记录，不是每一个静态资源请求的服务器日志。关闭 JavaScript、拦截上报或机器人请求可能不会记入；公开上报接口也无法证明每条记录都是正常访客。IP 可能是共享网络或 VPN 地址，不能据此确认个人身份。启用前应同步站点访问记录说明。
 
@@ -78,7 +83,7 @@ curl --fail --header "Authorization: Bearer $VISIT_LOG_ADMIN_TOKEN" \
 
 `0002_beijing_time.sql` 将原有 `Z` 时间转换为同一时刻的 `+08:00` 时间，保留毫秒、记录 ID 和索引。它只更新 `Z` 后缀，重复执行不会再次加 8 小时。新 Worker 在迁移前后都能正确筛选和清理混合格式的记录，API 同时统一返回北京时间。
 
-安全升级顺序：
+以下顺序仅适用于单独进行 `0002` 时区迁移；已完成时区迁移的站点启用设备功能，按下一节的 `0003` 顺序执行：
 
 1. 保存现有数据库的可恢复备份或 D1 Time Travel 恢复点。
 2. 先 `npm run deploy` 发布新 Worker，使后续写入全部采用 `+08:00`，并让旧 `Z` 数据查询继续正确。
@@ -86,5 +91,11 @@ curl --fail --header "Authorization: Bearer $VISIT_LOG_ADMIN_TOKEN" \
 4. 核验数据库不再含 `Z` 后缀，API 返回 `+08:00`，管理页按北京时间日期筛选、显示和 CSV 导出正确。
 
 迁移期间无需清空记录。发生回滚时仍需保留新 Worker 的混合格式兼容逻辑；旧 Worker 使用 UTC 字符串比较，不能直接回滚到它来查询已转换的数据。
+
+## 启用本人设备登记
+
+`0003_device_identity.sql` 为 `visits` 增加可空的 `device_id` 和索引，并创建 `owner_devices(device_id, label, created_at)`。已有访问保持设备 ID 为 `null`，不按 IP 回填。
+
+升级现有站点时，先保存数据库的可恢复备份或 D1 Time Travel 恢复点，再在 `worker/` 执行 `npm run db:remote` 应用 `0003`；随后部署共享实现的 Worker 和 Pages，最后发布 GitHub 前端。旧前端缺少 `device_id` 的请求仍可正常记录为未知设备，新后端必须在前端开始上报 UUID 前就绪。只取消设备登记不会删除已有访问记录，设备可再次登记。
 
 参考：[Cloudflare D1 参数化语句](https://developers.cloudflare.com/d1/worker-api/prepared-statements/)、[Workers secrets](https://developers.cloudflare.com/workers/configuration/secrets/)、[Cloudflare 请求头](https://developers.cloudflare.com/fundamentals/reference/http-request-headers/#cf-connecting-ip)。

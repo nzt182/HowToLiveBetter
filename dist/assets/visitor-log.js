@@ -36,8 +36,13 @@
   function send(page) {
     if (!page || page === lastPage) return;
     lastPage = page;
-    const body = JSON.stringify({ page });
-    // IP 和 UTC 时间由 Worker 获取，浏览器不提供身份或时间字段。
+    const payload = { page };
+    try {
+      const deviceId = window.VisitorDevice?.getId();
+      if (deviceId) payload.device_id = deviceId;
+    } catch (_) { /* 设备标识不可用时仍可记录页面。 */ }
+    const body = JSON.stringify(payload);
+    // IP 和北京时间由服务端获取，浏览器只提供页面及可用的随机浏览器标识。
     try {
       if (typeof navigator.sendBeacon === 'function'
         && navigator.sendBeacon(endpoint.href, new Blob([body], { type: 'text/plain' }))) return;
